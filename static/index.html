@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <video id="video" autoplay muted playsinline style="width:100%; max-width:400px"></video>
+    <script>
+      const video = document.getElementById("video");
+      const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+      const pc = new RTCPeerConnection(config);
+      const ws = new WebSocket("wss://" + location.host + "/ws");
+
+      ws.onopen = () => {
+        console.log("[WS] WebSocket open");
+      };
+
+      ws.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.desc) {
+          console.log("[WS] Received SDP", msg.desc.type);
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.desc));
+        } else if (msg.candidate) {
+          console.log("[WS] Received ICE candidate");
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        }
+      };
+
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+          console.log("[ICE] Sending candidate", candidate.candidate);
+          ws.send(JSON.stringify({ candidate }));
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log("[ICE] connection state:", pc.iceConnectionState);
+      };
+
+      async function start() {
+        try {
+          const constraints = {
+            video: {
+              width: { exact: 1920 },
+              height: { exact: 1080 },
+              frameRate: { ideal: 30, max: 60 },
+              facingMode: "environment"
+            },
+            audio: false
+          };
+
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+
+          const videoTrack = stream.getVideoTracks()[0];
+          console.log("[Camera] Actual settings:", videoTrack.getSettings());
+
+          stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          ws.send(JSON.stringify({ desc: pc.localDescription }));
+
+          console.log("[WebRTC] Offer sent");
+        } catch (e) {
+          alert("Error starting camera: " + e.message);
+          console.error(e);
+        }
+      }
+
+      start();
+    </script>
+  </body>
+</html>
