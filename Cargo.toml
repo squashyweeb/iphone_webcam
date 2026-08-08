@@ -1,0 +1,19 @@
+[package]
+name = "iphone-webcam"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-low latency iPhone webcam streamer via direct WebRTC P2P in Rust"
+license = "MIT"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tokio = { version = "1.38", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rcgen = "0.13"
+local-ip-address = "0.6"
+qr2term = "0.3"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+futures-util = "0.3"

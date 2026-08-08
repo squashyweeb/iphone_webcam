@@ -1,32 +1,27 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pyc
+# Rust build output
+/target/
+**/*.rs.bk
+Cargo.lock
 
-# Virtual environments
+# Certificates and keys (never commit secrets)
+*.pem
+*.key
+*.crt
+
+# Virtual Environments & Python leftovers
 .venv/
 venv/
 ENV/
-
-# Certificates and keys
-*.pem
-*.key
+env/
+__pycache__/
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# IDEs
-.idea/
+# IDE files
 .vscode/
+.idea/
 *.swp
-
-# Logs
-*.log
-
-# Misc
-*.bak
-*.tmp
-
+*.swo

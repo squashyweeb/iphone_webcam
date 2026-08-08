@@ -1,71 +1,134 @@
 <!DOCTYPE html>
 <html>
-  <body>
-    <video id="video" autoplay muted playsinline style="width:100%; max-width:400px"></video>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPhone Webcam (Sender)</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #0a0a0c; color: #fff; text-align: center; padding: 20px; margin: 0; }
+        #status { margin: 15px; font-weight: bold; color: #00e676; font-size: 15px; }
+        video { width: 100%; max-width: 400px; border-radius: 16px; background: #000; margin-top: 10px; }
+        .controls { margin-top: 15px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        select, button { padding: 10px 16px; font-size: 14px; border-radius: 8px; border: none; background: #1e1e24; color: white; border: 1px solid #333; cursor: pointer; }
+        button { background: #2979ff; }
+    </style>
+</head>
+<body>
+    <h2>📱 iPhone Camera</h2>
+    <div id="status">Connecting to server...</div>
+    <video id="localVideo" autoplay muted playsinline></video>
+    
+    <div class="controls">
+        <select id="resSelect" onchange="changeResolution()">
+            <option value="720" selected>720p (Ultra Low Latency)</option>
+            <option value="1080">1080p (Full HD)</option>
+            <option value="480">480p (Fastest)</option>
+        </select>
+        <button onclick="switchCamera()">🔄 Flip Camera</button>
+    </div>
+
     <script>
-      const video = document.getElementById("video");
-      const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-      const pc = new RTCPeerConnection(config);
-      const ws = new WebSocket("wss://" + location.host + "/ws");
+        const statusDiv = document.getElementById("status");
+        const video = document.getElementById("localVideo");
+        let ws = null;
+        let pc = null;
+        let localStream = null;
+        let facingMode = "environment";
 
-      ws.onopen = () => {
-        console.log("[WS] WebSocket open");
-      };
+        async function getStream() {
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+            }
+            const res = document.getElementById("resSelect").value;
+            const targetH = parseInt(res);
+            const targetW = Math.round(targetH * (16/9));
 
-      ws.onmessage = async (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.desc) {
-          console.log("[WS] Received SDP", msg.desc.type);
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.desc));
-        } else if (msg.candidate) {
-          console.log("[WS] Received ICE candidate");
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            const constraints = {
+                video: {
+                    width: { ideal: targetW },
+                    height: { ideal: targetH },
+                    frameRate: { ideal: 60, max: 60 },
+                    facingMode: facingMode
+                },
+                audio: false
+            };
+
+            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = localStream;
+            statusDiv.innerText = "🟢 Camera active (" + res + "p). Ready for PC connection.";
+            return localStream;
         }
-      };
 
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate) {
-          console.log("[ICE] Sending candidate", candidate.candidate);
-          ws.send(JSON.stringify({ candidate }));
+        async function switchCamera() {
+            facingMode = (facingMode === "environment") ? "user" : "environment";
+            await getStream();
+            if (pc) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+                if (sender) sender.replaceTrack(videoTrack);
+            }
         }
-      };
 
-      pc.oniceconnectionstatechange = () => {
-        console.log("[ICE] connection state:", pc.iceConnectionState);
-      };
-
-      async function start() {
-        try {
-          const constraints = {
-            video: {
-              width: { exact: 1920 },
-              height: { exact: 1080 },
-              frameRate: { ideal: 30, max: 60 },
-              facingMode: "environment"
-            },
-            audio: false
-          };
-
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          video.srcObject = stream;
-
-          const videoTrack = stream.getVideoTracks()[0];
-          console.log("[Camera] Actual settings:", videoTrack.getSettings());
-
-          stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          ws.send(JSON.stringify({ desc: pc.localDescription }));
-
-          console.log("[WebRTC] Offer sent");
-        } catch (e) {
-          alert("Error starting camera: " + e.message);
-          console.error(e);
+        async function changeResolution() {
+            await getStream();
+            if (pc) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+                if (sender) sender.replaceTrack(videoTrack);
+            }
         }
-      }
 
-      start();
+        function initWS() {
+            ws = new WebSocket("wss://" + location.host + "/ws?role=sender");
+
+            ws.onopen = async () => {
+                statusDiv.innerText = "Connected to server. Starting camera...";
+                await getStream();
+                statusDiv.innerText = "🟢 Camera active. Ready for PC connection.";
+            };
+
+            ws.onmessage = async (event) => {
+                const msg = JSON.parse(event.data);
+
+                if (msg.type === "offer") {
+                    console.log("[P2P] Received offer from PC viewer");
+                    statusDiv.innerText = "⚡ Connecting direct P2P to PC...";
+                    
+                    if (pc) pc.close();
+                    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+
+                    if (!localStream) await getStream();
+                    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+                    pc.onicecandidate = ({ candidate }) => {
+                        if (candidate && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: "candidate", candidate }));
+                        }
+                    };
+
+                    pc.oniceconnectionstatechange = () => {
+                        if (pc.iceConnectionState === "connected") {
+                            statusDiv.innerText = "⚡ Direct P2P Streaming to PC!";
+                        }
+                    };
+
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    ws.send(JSON.stringify({ type: "answer", sdp: pc.localDescription }));
+                } else if (msg.type === "candidate" && pc) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                    } catch(e) {}
+                }
+            };
+
+            ws.onclose = () => {
+                statusDiv.innerText = "Disconnected. Reconnecting...";
+                setTimeout(initWS, 2000);
+            };
+        }
+
+        initWS();
     </script>
-  </body>
+</body>
 </html>
