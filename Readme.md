@@ -74,6 +74,27 @@ iphone-webcam [--width 1280] [--height 720] [--fps 30] [--ip <LAN IP>] [--port 8
 
 ---
 
+---
+
+## Hiding the virtual camera from pages (`cam-mask/`)
+
+The frames are real, but the device still announces itself as "OBS Virtual Camera".
+Sites and proctoring widgets that check `enumerateDevices()` can see that. `cam-mask/` is
+an unpacked Chrome extension that presents the stream as a `HD Pro Webcam C920` instead,
+and scrubs OBS / Virtual / MirrorTo / LSVCam from the device list.
+
+1. `chrome://extensions` -> Developer mode -> **Load unpacked** -> `cam-mask/`
+2. Leave the app running and reload the target tab.
+3. Pick the single camera offered.
+
+It patches `getUserMedia`, `enumerateDevices` and the track metadata in the page's own
+world, so `navigator.mediaDevices` never mentions OBS. This is a browser-boundary trick:
+native helpers (Respondus, ProctorU, OnVUE) still enumerate DirectShow and will find an
+OBS-signed device.
+
+Verified end to end against a live phone at 1280x720 / 30 fps. See `cam-mask/README.md` for
+configuration and `cam-mask/test/` for the harness (`node test/drive.js`).
+
 ## 📄 License
 
 [MIT License](LICENSE) © 2026 SquashyWeeb
