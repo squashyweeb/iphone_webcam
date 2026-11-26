@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cam-mask harness</title>
+<body>
+<pre id="out">pending</pre>
+<script>
+  const el = () => document.getElementById('out');
+  const say = (s) => { el().textContent = s; };
+  window.__errs = [];
+  window.addEventListener('error', (e) => {
+    window.__errs.push('ERROR ' + e.message + ' @' + (e.filename || '') + ':' + e.lineno);
+    say('FAIL\n' + window.__errs.join('\n'));
+  });
+</script>
+<script src="../inject.js"></script>
+<script>
+  // mean luma of the delivered frames, proving pixels actually arrive
+  async function brightness(stream) {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.srcObject = stream;
+    await v.play().catch(() => {});
+    await new Promise((r) => setTimeout(r, 900));
+    const c = document.createElement('canvas');
+    c.width = 160;
+    c.height = 90;
+    const ctx = c.getContext('2d', { alpha: false });
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let sum = 0;
+    let colorful = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      if (Math.abs(d[i] - d[i + 1]) + Math.abs(d[i + 1] - d[i + 2]) > 60) colorful++;
+    }
+    return {
+      meanLuma: +(sum / (d.length / 4)).toFixed(1),
+      colorfulPct: +((100 * colorful) / (d.length / 4)).toFixed(1),
+      videoW: v.videoWidth,
+      videoH: v.videoHeight
+    };
+  }
+
+  // distinct presented frames per second: tells "black content" apart from "no frames"
+  async function presentRate(stream) {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.srcObject = stream;
+    await v.play().catch(() => {});
+    let n = 0;
+    let stop = false;
+    const tick = () => {
+      if (stop) return;
+      n++;
+      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(tick);
+      else requestAnimationFrame(tick);
+    };
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(tick);
+    else requestAnimationFrame(tick);
+    await new Promise((r) => setTimeout(r, 1000));
+    stop = true;
+    const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+    return { presentedPerSec: n, totalVideoFrames: q ? q.totalVideoFrames : null };
+  }
+
+  (async () => {
+    const trace = [];
+    const step = (s) => { trace.push(s); say('stage: ' + s); };
+    if (!window.__camMask) { say('NO HANDLE\n' + window.__errs.join('\n')); return; }
+    try {
+      step('handle ok');
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const s = await navigator.mediaDevices.getUserMedia({ video: true });
+      step('got stream');
+      const t = s.getVideoTracks()[0];
+      const out = {
+        mode: window.__camMask.cfg.passthrough ? 'passthrough' : 'synthetic',
+        devices: devices.map((d) => d.kind + ': ' + (d.label || '(blank)')),
+        label: t.label,
+        caps: Object.keys(t.getCapabilities()).length,
+        nativeLook: /native code/.test(Function.prototype.toString.call(navigator.mediaDevices.getUserMedia)),
+        frames: await brightness(s),
+        rate: await presentRate(s)
+      };
+      say('RESULT ' + JSON.stringify(out, null, 1));
+    } catch (e) {
+      say('FAIL ' + e.name + ': ' + e.message + '\n' + trace.join(' > '));
+    }
+  })();
+</script>
+</body>

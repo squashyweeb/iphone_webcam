@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>control</title>
+<body>
+<pre id="out">pending</pre>
+<script>
+  const el = () => document.getElementById('out');
+  const say = (s) => { el().textContent = s; };
+  const guard = setTimeout(() => say('TIMEOUT\nstill pending'), 3000);
+  (async () => {
+    try {
+      const d = await navigator.mediaDevices.enumerateDevices();
+      clearTimeout(guard);
+      say('CONTROL OK ' + d.length + ' -> ' + JSON.stringify(d.map((x) => x.kind + '/' + x.label)));
+    } catch (e) {
+      clearTimeout(guard);
+      say('CONTROL FAIL ' + e.name + ' ' + e.message);
+    }
+  })();
+</script>
+</body>
