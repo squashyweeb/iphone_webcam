@@ -7,6 +7,7 @@ Cargo.lock
 *.pem
 *.key
 *.crt
+cert-ips.txt
 
 # Virtual Environments & Python leftovers
 .venv/

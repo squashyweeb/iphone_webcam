@@ -46,16 +46,34 @@
                 video: {
                     width: { ideal: targetW },
                     height: { ideal: targetH },
-                    frameRate: { ideal: 60, max: 60 },
+                    frameRate: { ideal: 30, max: 30 },
                     facingMode: facingMode
                 },
                 audio: false
             };
 
-            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            // ?test streams an animated pattern instead of the camera (for testing from a PC browser).
+            localStream = new URLSearchParams(location.search).has("test")
+                ? testPatternStream(targetW, targetH)
+                : await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = localStream;
-            statusDiv.innerText = "🟢 Camera active (" + res + "p). Ready for PC connection.";
+            statusDiv.innerText = "🟢 Camera active (" + res + "p). Waiting for PC...";
             return localStream;
+        }
+
+        function testPatternStream(w, h) {
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            const colors = ["#fff", "#ff0", "#0ff", "#0f0", "#f0f", "#f00", "#00f"];
+            (function draw() {
+                colors.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(i * w / 7, 0, w / 7 + 1, h); });
+                const x = (Date.now() / 4) % w;
+                ctx.fillStyle = "#000"; ctx.fillRect(x, h / 2 - 60, 120, 120);
+                ctx.font = (h / 10) + "px sans-serif"; ctx.fillText(new Date().toISOString().slice(11, 23), 20, h - 30);
+                requestAnimationFrame(draw);
+            })();
+            return canvas.captureStream(30);
         }
 
         async function switchCamera() {
@@ -83,18 +101,18 @@
             ws.onopen = async () => {
                 statusDiv.innerText = "Connected to server. Starting camera...";
                 await getStream();
-                statusDiv.innerText = "🟢 Camera active. Ready for PC connection.";
+                statusDiv.innerText = "🟢 Camera active. Waiting for PC...";
             };
 
             ws.onmessage = async (event) => {
                 const msg = JSON.parse(event.data);
 
                 if (msg.type === "offer") {
-                    console.log("[P2P] Received offer from PC viewer");
+                    console.log("[P2P] Received offer from PC");
                     statusDiv.innerText = "⚡ Connecting direct P2P to PC...";
                     
                     if (pc) pc.close();
-                    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+                    pc = new RTCPeerConnection();
 
                     if (!localStream) await getStream();
                     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
@@ -105,9 +123,14 @@
                         }
                     };
 
+                    const thisPc = pc;
                     pc.oniceconnectionstatechange = () => {
-                        if (pc.iceConnectionState === "connected") {
-                            statusDiv.innerText = "⚡ Direct P2P Streaming to PC!";
+                        const st = thisPc.iceConnectionState;
+                        if (st === "connected" || st === "completed") {
+                            statusDiv.innerText = "⚡ Streaming to PC webcam";
+                        } else if (st === "failed") {
+                            statusDiv.innerText = "Connection failed. Retrying...";
+                            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "restart" }));
                         }
                     };
 
